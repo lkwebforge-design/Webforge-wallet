@@ -92,6 +92,13 @@ function App() {
 
   useEffect(() => { if (user) loadFinance(); }, [user, loadFinance]);
 
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const closeOnEscape = event => { if (event.key === "Escape") setMobileOpen(false); };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [mobileOpen]);
+
   const ledger = data.ledger;
   const settled = useMemo(() => ledger.filter(e => e.status === "settled"), [ledger]);
   const totals = useMemo(() => ["USD", "LKR"].reduce((acc, cur) => {
@@ -136,15 +143,15 @@ function App() {
   const pageTitle = active === "Overview" ? "Business overview" : active;
   const PageIcon = nav.find(([label]) => label === active)?.[1] || Settings;
   return <div className="app-shell">
-    <aside className={mobileOpen ? "sidebar open" : "sidebar"}>
-      <div className="brand"><div className="brand-mark"><CircleDollarSign size={22}/></div><div><strong>PhoneLanka</strong><span>FINANCE WORKSPACE</span></div><button className="mobile-close icon-button" onClick={() => setMobileOpen(false)} aria-label="Close menu"><X size={19}/></button></div>
+    <aside id="primary-navigation" className={mobileOpen ? "sidebar open" : "sidebar"} aria-label="Main navigation">
+      <div className="brand"><div className="brand-mark"><CircleDollarSign size={22}/></div><div><strong>PhoneLanka</strong><span>FINANCE WORKSPACE</span></div><button type="button" className="mobile-close icon-button" onClick={() => setMobileOpen(false)} aria-label="Close menu"><X size={19}/></button></div>
       <div className="workspace-label">WORKSPACE</div>
-      <nav>{nav.map(([label, NavIcon]) => <button key={label} className={active === label ? "nav-item active" : "nav-item"} onClick={() => { setActive(label); setSearch(""); setMobileOpen(false); }}><NavIcon size={18}/><span>{label}</span>{label === "Audit log" && <span className="nav-lock"><LockKeyhole size={13}/></span>}</button>)}</nav>
-      <div className="sidebar-bottom"><button className={active === "Settings" ? "nav-item active" : "nav-item"} onClick={() => setActive("Settings")}><Settings size={18}/>Settings</button><div className="owner-card"><div className="owner-avatar">PL</div><div><strong>Finance owner</strong><span>{user.email}</span></div><ShieldCheck size={16}/></div></div>
+      <nav>{nav.map(([label, NavIcon]) => <button type="button" key={label} aria-current={active === label ? "page" : undefined} className={active === label ? "nav-item active" : "nav-item"} onClick={() => { setActive(label); setSearch(""); setMobileOpen(false); }}><NavIcon size={18}/><span>{label}</span>{label === "Audit log" && <span className="nav-lock"><LockKeyhole size={13}/></span>}</button>)}</nav>
+      <div className="sidebar-bottom"><button type="button" aria-current={active === "Settings" ? "page" : undefined} className={active === "Settings" ? "nav-item active" : "nav-item"} onClick={() => { setActive("Settings"); setSearch(""); setMobileOpen(false); }}><Settings size={18}/>Settings</button><div className="owner-card"><div className="owner-avatar">PL</div><div><strong>Finance owner</strong><span>{user.email}</span></div><ShieldCheck size={16}/></div></div>
     </aside>
-    {mobileOpen && <button className="scrim" onClick={() => setMobileOpen(false)} aria-label="Close navigation"/>}
+    {mobileOpen && <button type="button" className="scrim" onClick={() => setMobileOpen(false)} aria-label="Close navigation"/>}
     <main className="main">
-      <header className="topbar"><button className="mobile-menu icon-button" onClick={() => setMobileOpen(true)} aria-label="Open menu"><Menu size={20}/></button><div className="breadcrumb">PhoneLanka <span>/</span> <b>{active}</b></div><div className="top-actions"><div className="secure-label"><ShieldCheck size={15}/> Owner-only access</div><button className="icon-button" onClick={loadFinance} aria-label="Refresh data"><RefreshCw size={17}/></button><button className="avatar" onClick={signOut} title="Sign out"><LogOut size={15}/></button></div></header>
+      <header className="topbar"><button type="button" className="mobile-menu icon-button" onClick={() => setMobileOpen(open => !open)} aria-label={mobileOpen ? "Close menu" : "Open menu"} aria-expanded={mobileOpen} aria-controls="primary-navigation"><Menu size={20}/></button><div className="breadcrumb">PhoneLanka <span>/</span> <b>{active}</b></div><div className="top-actions"><div className="secure-label"><ShieldCheck size={15}/> Owner-only access</div><button className="icon-button" onClick={loadFinance} aria-label="Refresh data"><RefreshCw size={17}/></button><button className="avatar" onClick={signOut} title="Sign out"><LogOut size={15}/></button></div></header>
       <div className="content">
         <section className="page-heading"><div><div className="eyebrow">FINANCIAL CONTROL CENTRE</div><h1>{pageTitle}</h1><p>PhoneLanka seller subscription revenue and business finances.</p></div><div className="heading-actions"><button className="secondary-button" onClick={() => setCurrency(currency === "USD" ? "LKR" : "USD")}>{currency} <ChevronDown size={15}/></button>{active !== "Overview" && <button className="secondary-button" onClick={exportCsv}><Download size={15}/> Export CSV</button>}</div></section>
         <div className="live-banner"><span className="live-dot"/><b>Connected to PhoneLanka Finance database</b><span>Read-only dashboard</span><span className="last-updated">{lastUpdated ? "Updated " + lastUpdated.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}) : ""}</span></div>
