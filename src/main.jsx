@@ -177,6 +177,7 @@ function Overview({ totals, pending, ledger, currency, onGo }) {
   return <>
     <section className="currency-summary"><div><span>USD BALANCE</span><strong>{money(totals.USD.balance,"USD")}</strong><small>Settled income less settled debits</small></div><div><span>LKR BALANCE</span><strong>{money(totals.LKR.balance,"LKR")}</strong><small>Kept separate from USD</small></div></section>
     <section className="metric-grid"><Metric title={currency+" settled income"} value={money(t.income,currency)} note="Confirmed settled credits" icon={ArrowDownLeft}/><Metric title={currency+" available balance"} value={money(t.balance,currency)} note="Settled credits less debits" icon={Wallet}/><Metric title="Pending payments" value={pending.length.toLocaleString()} note="Not counted as available funds" icon={Clock3}/><Metric title={currency+" settled debits"} value={money(t.expenses,currency)} note="Expenses and other debits" icon={ReceiptText}/></section>
+    <IncomeAnalytics ledger={ledger} currency={currency}/>
     <div className="section-grid"><section className="panel activity-panel"><div className="panel-heading"><div><h2>Recent financial activity</h2><p>Latest recorded ledger entries</p></div><button className="text-button" onClick={()=>onGo("Income")}>View ledger →</button></div>{recent.length ? <div className="table-wrap"><table><thead><tr><th>DETAIL</th><th>DATE</th><th>STATUS</th><th className="right">AMOUNT</th></tr></thead><tbody>{recent.map(e=><tr key={e.id}><td><b>{e.description || e.category}</b><small>{e.category}</small></td><td>{dateText(e.occurred_at || e.created_at)}</td><td><Status value={e.status}/></td><td className="right amount">{e.entry_type==="debit"?"−":"+"}{money(e.amount,e.currency)}</td></tr>)}</tbody></table></div> : <Empty icon={BarChart3} title="No financial activity yet" text="No verified transactions have been recorded. Your balances correctly start at zero."/>}</section>
       <section className="panel"><div className="panel-heading"><div><h2>Seller subscription plans</h2><p>Current PhoneLanka pricing reference</p></div><span className="tiny-tag">PLAN DETAILS</span></div><div className="plan-list">{plans.map(p=><div className="plan" key={p.name}><div className="plan-top"><div><strong>{p.name}</strong>{p.featured&&<span className="premium-tag">POPULAR</span>}</div><div className="plan-price">{p.price}<small> / {p.period}</small></div></div><ul>{p.features.map(f=><li key={f}>{f}</li>)}</ul></div>)}</div><div className="integrity-note"><ShieldCheck size={16}/> Only confirmed subscription payments count as received revenue.</div></section></div>
     <section className="notice-row"><ShieldCheck size={17}/><span><b>Financial integrity:</b> USD and LKR are never combined. Currency conversion requires a recorded rate, source, timestamp and matching ledger entries. Buyer-to-seller payments are not PhoneLanka revenue.</span></section>
@@ -190,6 +191,68 @@ function LedgerPage({active,rows,search,setSearch,onExport}) {
 function SimpleTable({title,description,rows,columns}) {
   return <section className="panel ledger-panel"><div className="panel-heading"><div><h2>{title}</h2><p>{description}</p></div><span className="tiny-tag">{rows.length} RECORDS</span></div>{rows.length ? <div className="table-wrap"><table><thead><tr>{columns.map(c=><th key={c[0]}>{c[1].toUpperCase()}</th>)}</tr></thead><tbody>{rows.map(r=><tr key={r.id}>{columns.map(([key,label])=><td key={key}>{key==="status"?<Status value={r[key]}/>:key.includes("_at")?dateText(r[key]):key==="amount"?money(r[key],r.currency):r[key]||"—"}</td>)}</tr>)}</tbody></table></div>:<Empty title="No records yet" text="This section will show verified records as they are securely added."/>}</section>;
 }
+function IncomeAnalytics({ ledger, currency }) {
+  const [range, setRange] = useState("month");
+  const chart = useMemo(() => {
+    const now = new Date();
+    const periods = [];
+    if (range === "day") {
+      for (let i = 13; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+        periods.push({ key: d.toLocaleDateString("en-CA"), label: d.toLocaleDateString([], { weekday: "short" }), full: d.toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" }), value: 0 });
+      }
+    } else if (range === "month") {
+      for (let i = 11; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        periods.push({ key: d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0"), label: d.toLocaleDateString([], { month: "short" }), full: d.toLocaleDateString([], { month: "long", year: "numeric" }), value: 0 });
+      }
+    } else {
+      for (let i = 4; i >= 0; i--) {
+        const year = now.getFullYear() - i;
+        periods.push({ key: String(year), label: String(year), full: String(year), value: 0 });
+      }
+    }
+    const index = new Map(periods.map((p, i) => [p.key, i]));
+    ledger.forEach(entry => {
+      if (entry.status !== "settled" || entry.entry_type !== "credit" || entry.category !== "subscription_revenue" || entry.currency !== currency) return;
+      const d = new Date(entry.occurred_at || entry.created_at);
+      if (Number.isNaN(d.getTime())) return;
+      const key = range === "day" ? d.toLocaleDateString("en-CA")
+        : range === "month" ? d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0")
+        : String(d.getFullYear());
+      const i = index.get(key);
+      if (i !== undefined) periods[i].value += Number(entry.amount || 0);
+    });
+    return periods;
+  }, [ledger, currency, range]);
+  const total = chart.reduce((sum, p) => sum + p.value, 0);
+  const peak = chart.reduce((best, p) => p.value > best.value ? p : best, { value: 0, label: "—" });
+  const max = Math.max(1, ...chart.map(p => p.value));
+  const points = chart.map((p, i) => {
+    const x = chart.length === 1 ? 50 : 8 + i * (84 / (chart.length - 1));
+    const y = 92 - (p.value / max) * 76;
+    return x + "," + y;
+  }).join(" ");
+  const ranges = [["day", "Day"], ["month", "Month"], ["year", "Year"]];
+  return <section className="income-analytics">
+    <div className="analytics-heading"><div><div className="eyebrow">REVENUE PERFORMANCE</div><h2>Income analytics</h2><p>Confirmed, settled PhoneLanka subscription income only · {currency}</p></div>
+      <div className="range-switch">{ranges.map(([key, label]) => <button key={key} className={range === key ? "selected" : ""} onClick={() => setRange(key)}>{label}</button>)}</div>
+    </div>
+    <div className="analytics-summary">
+      <div><span>{range === "day" ? "LAST 14 DAYS" : range === "month" ? "LAST 12 MONTHS" : "LAST 5 YEARS"}</span><strong>{money(total, currency)}</strong><small>Total settled income</small></div>
+      <div><span>TOP PERIOD</span><strong>{money(peak.value, currency)}</strong><small>{peak.value ? peak.label : "No income recorded yet"}</small></div>
+    </div>
+    <div className="analytics-chart-grid">
+      <div className="analytics-chart-card"><div className="chart-card-title"><div><h3>{range === "day" ? "Daily income" : range === "month" ? "Monthly income" : "Yearly income"}</h3><p>Income received in each period</p></div><span className="chart-legend"><i/> Income</span></div>
+        {total > 0 ? <><div className="bar-chart" role="img" aria-label={range + " income bar chart"}>{chart.map(p => <div className="bar-column" key={p.key} title={p.full + ": " + money(p.value, currency)}><div className="bar-track"><i style={{ height: (p.value ? Math.max(3, p.value / max * 100) : 0) + "%" }}/></div><span>{p.label}</span></div>)}</div><div className="chart-footnote">Values are based on settled subscription credits in the selected currency.</div></> : <div className="chart-empty"><BarChart3 size={24}/><b>No settled income yet</b><span>Your real income chart will appear here when confirmed subscription payments are recorded.</span></div>}
+      </div>
+      <div className="analytics-chart-card trend-card"><div className="chart-card-title"><div><h3>Income trend</h3><p>{range === "day" ? "Daily movement" : range === "month" ? "Month-by-month movement" : "Year-by-year movement"}</p></div><Activity size={17}/></div>
+        {total > 0 ? <><svg className="trend-svg" viewBox="0 0 100 100" role="img" aria-label={range + " income trend line"} preserveAspectRatio="none"><defs><linearGradient id="incomeFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#9fcb79" stopOpacity=".35"/><stop offset="100%" stopColor="#9fcb79" stopOpacity="0"/></linearGradient></defs><path d={"M " + points.split(" ").join(" L ") + " L 92,96 L 8,96 Z"} fill="url(#incomeFill)"/><polyline points={points} fill="none" stroke="#79a956" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>{chart.map((p, i) => { const x = chart.length === 1 ? 50 : 8 + i * (84 / (chart.length - 1)); const y = 92 - (p.value / max) * 76; return <circle key={p.key} cx={x} cy={y} r="1.8" fill="#fff" stroke="#79a956" strokeWidth="1.2"><title>{p.full}: {money(p.value, currency)}</title></circle>; })}</svg><div className="trend-labels"><span>{chart[0]?.label}</span><span>{chart[Math.floor((chart.length - 1) / 2)]?.label}</span><span>{chart[chart.length - 1]?.label}</span></div></> : <div className="chart-empty"><Activity size={24}/><b>Waiting for income data</b><span>The trend line will reflect actual settled income, never example figures.</span></div>}
+      </div>
+    </div>
+  </section>;
+}
+
 function Reports({totals,ledger}) {
   const months = useMemo(()=>{const out={};ledger.filter(e=>e.status==="settled").forEach(e=>{const d=new Date(e.occurred_at||e.created_at);const key=d.toLocaleDateString([],{month:"short",year:"2-digit"});out[key]??={USD:0,LKR:0};out[key][e.currency]+= (e.entry_type==="credit"?1:-1)*Number(e.amount);});return Object.entries(out).slice(-6);},[ledger]);
   return <><section className="currency-summary"><div><span>USD NET BALANCE</span><strong>{money(totals.USD.balance,"USD")}</strong><small>Settled ledger balance</small></div><div><span>LKR NET BALANCE</span><strong>{money(totals.LKR.balance,"LKR")}</strong><small>Settled ledger balance</small></div></section><section className="panel"><div className="panel-heading"><div><h2>Monthly net activity</h2><p>Separate currency totals; no automatic FX conversion.</p></div></div>{months.length?<div className="report-bars">{months.map(([month,v])=><div key={month}><span>{month}</span><div><i style={{height:Math.max(3,Math.min(100,Math.abs(v.USD)/Math.max(1,...months.map(x=>Math.abs(x[1].USD)))*100))+"%"}}/></div><small>{money(v.USD,"USD")}</small></div>)}</div>:<Empty icon={BarChart3} title="No report data yet" text="Monthly charts appear after settled transactions are recorded."/>}</section></>;
